@@ -1,0 +1,42 @@
+import cv2
+
+def detect_object(object_img, scene_img):
+    # Convert the images to grayscale
+    object_gray = cv2.cvtColor(object_img, cv2.COLOR_BGR2GRAY)
+    scene_gray = cv2.cvtColor(scene_img, cv2.COLOR_BGR2GRAY)
+
+    # Detect features in the object image
+    sift = cv2.xfeatures2d.SIFT_create()
+    keypoints_object, descriptors_object = sift.detectAndCompute(object_gray, None)
+
+    # Detect features in the scene image
+    keypoints_scene, descriptors_scene = sift.detectAndCompute(scene_gray, None)
+
+    # Match the features between the object and scene images
+    matcher = cv2.DescriptorMatcher_create(cv2.DESCRIPTOR_MATCHER_BRUTEFORCE_HAMMING)
+    matches = matcher.match(descriptors_object, descriptors_scene, None)
+
+    # Sort the matches by distance
+    matches.sort(key=lambda x: x.distance, reverse=False)
+
+    # Draw the top N matches
+    N = 10
+    output_img = cv2.drawMatches(object_img, keypoints_object, scene_img, keypoints_scene, matches[:N], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+
+    # Extract the location of the object in the scene image
+    obj_pts = []
+    scene_pts = []
+    for mat in matches:
+        obj_pts.append(keypoints_object[mat.queryIdx].pt)
+        scene_pts.append(keypoints_scene[mat.trainIdx].pt)
+    H, _ = cv2.findHomography(obj_pts, scene_pts, cv2.RANSAC)
+
+    # Use the homography to project the object bounds onto the scene image
+    obj_corners = np.array([[0, 0], [object_img.shape[1], 0], [object_img.shape[1], object_img.shape[0]], [0, object_img.shape[0]]], dtype=np.float32)
+    scene_corners = cv2.perspectiveTransform(obj_corners.reshape(1, -1, 2), H).reshape(-1, 2)
+
+    # Draw a rectangle around the object in the scene image
+    cv2.polylines(output_img, [np.int32(scene_corners)], True, (0, 255, 0), 2, cv2.LINE_AA)
+
+    # Return the size of the object in pixels and the image with the result
+    return (object_img.shape[0] * object_img.shape[1], output_img)
